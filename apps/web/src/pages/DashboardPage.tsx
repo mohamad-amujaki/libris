@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { BooksExportPanel } from "../components/BooksExportPanel";
 import { type BookTableRow, BooksTable } from "../components/BooksTable";
 import { IconSearch, PageHeader } from "../components/PageHeader";
 import { apiFetch } from "../lib/api";
@@ -99,6 +100,7 @@ export function DashboardPage() {
               : null}
           </p>
         )}
+        <BooksExportPanel filters={{ q, format, tagFilter }} />
         <BooksTable data={books} isLoading={booksQuery.isLoading} />
       </section>
 

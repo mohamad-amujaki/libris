@@ -10,7 +10,7 @@ Dokumen ini merangkum **Product Requirements Document (PRD)**, arsitektur, model
 
 - Mendaftarkan **folder perpustakaan** (path absolut di mesin pengguna).
 - **Memindai** rekursif file `.pdf` dan `.epub`, mengekstrak metadata, dan menyimpan **indeks di SQLite**.
-- Menyediakan **UI web** untuk pencarian, filter, tag, detail buku, membuka file di aplikasi default OS, dan menghapus buku dari indeks **serta** file di disk (dengan validasi keamanan path).
+- Menyediakan **UI web** untuk pencarian, filter, tag, detail buku (termasuk mengedit penulis & ringkasan di indeks), **ekspor daftar** ke **PDF** dan **Excel** (pratinjau + unduh, mengikuti filter), membuka file di aplikasi default OS, dan menghapus buku dari indeks **serta** file di disk (dengan validasi keamanan path).
 
 File ebook **tidak diunggah ke cloud**; yang disimpan di basis data adalah metadata, path, tag, dan referensi ke cache cover opsional.
 
@@ -48,8 +48,9 @@ Libris menargetkan **satu pengguna atau lingkungan rumah kecil** pada **localhos
 - Registrasi & login **email + password** (Better Auth, SQLite).
 - CRUD konsep untuk **Library root** (tambah path, daftar, hapus root di API; UI utama untuk tambah + scan).
 - **Scan** dari UI dilakukan **per root** (tombol Scan pada setiap baris folder); endpoint `POST /api/scan` tanpa `rootId` tetap dapat memindai semua root jika dipanggil secara programatis.
-- Daftar buku dengan **pagination**, filter **format**, **tag**, query teks **q**.
-- Halaman **detail** buku: metadata, path, tag (replace via PATCH), tombol **buka file**.
+- Daftar buku dengan **pagination** (TanStack Table; kontrol nomor halaman berbentuk lingkaran), filter **format**, **tag**, query teks **q**.
+- **Ekspor daftar** dari dashboard: tombol **PDF** dan **Excel** — data mengikuti filter aktif; dialog **pratinjau** (iframe untuk PDF, tabel untuk Excel) lalu **unduh** file; pengambilan data mem-paginasi API (`pageSize` 500) hingga `total` tercapai.
+- Halaman **detail** buku: metadata, path, **mengedit penulis** (koma-separator) dan **ringkasan/deskripsi** (PATCH), tag (replace via PATCH), tombol **buka file**; setelah **simpan** berhasil (PATCH penulis/ringkasan atau tag), pengguna diarahkan ke **halaman utama** (`/`).
 - **Hapus** buku: unlink file + hapus record (dengan cek path di bawah root).
 - **Tema** terang/gelap (`data-theme` di `<html>`).
 - Sidebar **expand/collapse** dengan state persisten `localStorage`.
@@ -70,6 +71,8 @@ Libris menargetkan **satu pengguna atau lingkungan rumah kecil** pada **localhos
 4. Sebagai pengguna, saya ingin **menandai** buku dengan tag agar bisa difilter.
 5. Sebagai pengguna, saya ingin **membuka file** dari aplikasi agar tidak perlu mencari manual di Finder/Explorer.
 6. Sebagai pengguna, saya ingin **menghapus** buku dari koleksi dan disk agar ruang bersih dan indeks konsisten.
+7. Sebagai pengguna, saya ingin **mengoreksi penulis dan ringkasan** di indeks agar pencarian dan daftar lebih akurat.
+8. Sebagai pengguna, saya ingin **mengekspor daftar ebook** ke PDF atau Excel agar bisa dibagikan atau diarsipkan di luar aplikasi.
 
 ### 2.7 Persyaratan non-fungsional
 
@@ -116,6 +119,7 @@ Libris menargetkan **satu pengguna atau lingkungan rumah kecil** pada **localhos
 | Routing        | TanStack Router **file-based** (`@tanstack/router-plugin`) |
 | Data fetching  | TanStack Query |
 | Tabel          | TanStack Table |
+| Ekspor klien   | **jsPDF** + **jspdf-autotable** (PDF), **xlsx** (SheetJS, `.xlsx`; impor dinamis) |
 | Styling        | Tailwind CSS **v4** (`@tailwindcss/vite`), CSS variabel tema + `@apply` |
 | Toasts         | Sonner |
 | Auth           | Better Auth (adapter Prisma, email/password) |
@@ -173,7 +177,7 @@ Base URL dev: `http://127.0.0.1:3001` (diproxy dari Vite sebagai `/api`).
 | POST | `/api/scan` | Body `{ rootId? }` — scan satu root atau semua |
 | GET | `/api/books` | Query: `q`, `tag`, `format`, `page`, `pageSize` (maks 500) |
 | GET | `/api/books/:id` | Detail buku |
-| PATCH | `/api/books/:id` | `title`, `description`, `tagNames[]` |
+| PATCH | `/api/books/:id` | `title?`, `description?` (nullable), `authors?` (array string → disimpan sebagai `authorsJson`), `tagNames?` (mengganti seluruh tag buku) |
 | DELETE | `/api/books/:id` | Hapus file di disk (jika di bawah root) + DB + cover cache opsional |
 | POST | `/api/books/:id/open` | Validasi path → `open()` file default OS |
 | GET | `/api/tags` | Daftar tag |
@@ -189,13 +193,15 @@ File-based routing (`apps/web/src/routes/`):
 | URL | File rute | Komponen halaman |
 | --- | --------- | ---------------- |
 | `/login` | `login.tsx` | `LoginPage` — login/daftar |
-| `/` | `_authenticated/index.tsx` | `DashboardPage` — sorotan, koleksi, tabel |
+| `/` | `_authenticated/index.tsx` | `DashboardPage` — koleksi, filter, **`BooksExportPanel`** (ekspor PDF/Excel pratinjau + unduh), **`BooksTable`** dengan pagination, kartu statistik ringkas |
 | `/folders` | `_authenticated/folders.tsx` | `LibraryRootsPage` — tambah root (input path + **Telusuri folder** membuka dialog pemilih folder), scan **per root**; tidak ada tombol scan semua folder di UI |
-| `/books/$bookId` | `_authenticated/books/$bookId.tsx` | `BookDetailPage` |
+| `/books/$bookId` | `_authenticated/books/$bookId.tsx` | `BookDetailPage` — edit penulis & ringkasan, tag, buka file; redirect ke `/` setelah simpan PATCH berhasil |
 
 Layout terautentikasi: `_authenticated.tsx` — guard sesi + `AppShell` (sidebar + outlet).
 
 **Halaman `/folders`:** dialog **Pilih folder** hanya muncul sebagai modal setelah **Telusuri folder** diklik; dialog ditutup setelah **Gunakan folder ini** atau **Batal**, lalu dapat dibuka lagi dari **Telusuri folder**. Path terpilih mengisi field path absolut untuk **Tambah folder**. Gaya untuk `.folder-browse-dialog` di `global.css` memisahkan tampilan tertutup/terbuka (`:not([open])` vs `[open]`) agar konten dialog tidak ikut tampil di layout halaman saat modal belum dibuka.
+
+**Halaman `/` (dashboard):** ekspor memakai `fetchAllBooksForExport` di `lib/export-books.ts` dengan parameter query yang sama seperti daftar; dialog pratinjau memakai kelas `.export-preview-dialog` di `global.css`.
 
 ---
 
@@ -240,7 +246,7 @@ Basis data default relatif ke folder Prisma (`dev.db`).
 
 ## 12. Roadmap ide (bukan komitmen)
 
-- Export/backup daftar buku (CSV/JSON).
+- Ekspor tambahan (CSV/JSON) atau opsi kolom kustom.
 - Pengaturan admin untuk reset password.
 - Dukungan format tambahan (cbz, dll.) jika ada kebutuhan.
 - Packaging desktop (Tauri/Electron) untuk pengguna non-CLI.
@@ -257,9 +263,12 @@ Basis data default relatif ke folder Prisma (`dev.db`).
 | Metadata PDF/EPUB | `apps/api/src/lib/metadata.ts` |
 | Path security | `apps/api/src/lib/paths.ts` |
 | Entry web | `apps/web/src/main.tsx` |
+| Dashboard & ekspor | `apps/web/src/pages/DashboardPage.tsx`, `apps/web/src/components/BooksExportPanel.tsx`, `apps/web/src/lib/export-books.ts` |
+| Tabel koleksi + pagination | `apps/web/src/components/BooksTable.tsx` |
+| Detail buku | `apps/web/src/pages/BookDetailPage.tsx` |
 | Halaman folder perpustakaan | `apps/web/src/pages/LibraryRootsPage.tsx` |
 | Router tree (generated) | `apps/web/src/routeTree.gen.ts` |
-| Gaya global + Tailwind | `apps/web/src/styles/global.css` |
+| Gaya global + Tailwind | `apps/web/src/styles/global.css` (pagination `.table-pagination-*`, ekspor `.export-*`, dialog folder `.folder-browse-dialog`) |
 
 ---
 
