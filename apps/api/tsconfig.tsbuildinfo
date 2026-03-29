@@ -1,0 +1,1 @@
+{"root":["./src/auth.ts","./src/env.ts","./src/index.ts","./src/lib/metadata.ts","./src/lib/paths.ts","./src/lib/scanner.ts","./src/lib/slug.ts","./src/lib/trusted-origins.ts"],"version":"5.9.3"}
