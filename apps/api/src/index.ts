@@ -290,6 +290,7 @@ app.get("/api/books/:id", async (c) => {
 const patchBook = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  authors: z.array(z.string()).optional(),
   tagNames: z.array(z.string()).optional(),
 });
 
@@ -300,14 +301,19 @@ app.patch("/api/books/:id", zValidator("json", patchBook), async (c) => {
   if (!existing) {
     return c.json({ error: "Not found" }, 404);
   }
-  const { tagNames, ...rest } = body;
+  const { tagNames, title, description, authors } = body;
   await prisma.$transaction(async (tx) => {
     await tx.book.update({
       where: { id },
       data: {
-        ...(rest.title !== undefined ? { title: rest.title } : {}),
-        ...(rest.description !== undefined
-          ? { description: rest.description }
+        ...(title !== undefined ? { title } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(authors !== undefined
+          ? {
+              authorsJson: JSON.stringify(
+                authors.map((a) => a.trim()).filter(Boolean),
+              ),
+            }
           : {}),
       },
     });

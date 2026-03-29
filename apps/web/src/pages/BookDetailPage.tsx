@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
 import { apiFetch } from "../lib/api";
 
@@ -21,7 +22,10 @@ type BookDetailPageProps = {
 
 export function BookDetailPage({ bookId }: BookDetailPageProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [tagInput, setTagInput] = useState("");
+  const [authorsInput, setAuthorsInput] = useState("");
+  const [descriptionInput, setDescriptionInput] = useState("");
 
   const bookQuery = useQuery({
     queryKey: ["book", bookId],
@@ -29,7 +33,12 @@ export function BookDetailPage({ bookId }: BookDetailPageProps) {
   });
 
   const patchBook = useMutation({
-    mutationFn: (body: { title?: string; tagNames?: string[] }) =>
+    mutationFn: (body: {
+      title?: string;
+      description?: string | null;
+      authors?: string[];
+      tagNames?: string[];
+    }) =>
       apiFetch<{ book: BookDetail }>(`/api/books/${bookId}`, {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -37,6 +46,7 @@ export function BookDetailPage({ bookId }: BookDetailPageProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["book", bookId] });
       queryClient.invalidateQueries({ queryKey: ["books"] });
+      navigate({ to: "/" });
     },
   });
 
@@ -54,7 +64,23 @@ export function BookDetailPage({ bookId }: BookDetailPageProps) {
       return;
     }
     setTagInput(book.tags.map((t) => t.name).join(", "));
+    setAuthorsInput(book.authors.join(", "));
+    setDescriptionInput(book.description ?? "");
   }, [book]);
+
+  function saveAuthorsAndDescription() {
+    const authors = authorsInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const description =
+      descriptionInput.trim() === "" ? null : descriptionInput.trim();
+    toast.promise(patchBook.mutateAsync({ authors, description }), {
+      loading: "Menyimpan…",
+      success: "Penulis dan ringkasan diperbarui.",
+      error: (e) => (e instanceof Error ? e.message : "Gagal menyimpan."),
+    });
+  }
 
   function saveTags() {
     const names = tagInput
@@ -129,11 +155,72 @@ export function BookDetailPage({ bookId }: BookDetailPageProps) {
             </div>
           </div>
 
-          {book.description && (
-            <div className="card card--pad" style={{ marginBottom: 20 }}>
-              <p style={{ margin: 0, lineHeight: 1.65 }}>{book.description}</p>
-            </div>
-          )}
+          <section className="card card--pad" style={{ marginBottom: 20 }}>
+            <h2 className="section-title" style={{ fontSize: "1.1rem" }}>
+              Penulis & ringkasan
+            </h2>
+            <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+              Pisahkan beberapa nama penulis dengan koma. Ringkasan disimpan
+              sebagai deskripsi buku di indeks.
+            </p>
+            <label
+              className="muted"
+              style={{
+                display: "block",
+                fontSize: 13,
+                fontWeight: 600,
+                marginTop: 14,
+                marginBottom: 6,
+              }}
+              htmlFor="book-authors-input"
+            >
+              Penulis
+            </label>
+            <input
+              id="book-authors-input"
+              className="input"
+              style={{ width: "100%", boxSizing: "border-box" }}
+              value={authorsInput}
+              onChange={(e) => setAuthorsInput(e.target.value)}
+              placeholder="contoh: Andrea Hirata, Dewi Lestari"
+            />
+            <label
+              className="muted"
+              style={{
+                display: "block",
+                fontSize: 13,
+                fontWeight: 600,
+                marginTop: 14,
+                marginBottom: 6,
+              }}
+              htmlFor="book-description-input"
+            >
+              Ringkasan
+            </label>
+            <textarea
+              id="book-description-input"
+              className="input"
+              style={{
+                width: "100%",
+                minHeight: 120,
+                boxSizing: "border-box",
+                resize: "vertical",
+                lineHeight: 1.55,
+              }}
+              value={descriptionInput}
+              onChange={(e) => setDescriptionInput(e.target.value)}
+              placeholder="Sinopsis atau catatan singkat tentang buku ini…"
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ marginTop: 14 }}
+              disabled={patchBook.isPending}
+              onClick={saveAuthorsAndDescription}
+            >
+              Simpan penulis & ringkasan
+            </button>
+          </section>
 
           <div
             style={{
